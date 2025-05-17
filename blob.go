@@ -47,7 +47,7 @@ func (l *LocalFiles) Write(ctx context.Context, key string, data []byte) error {
 	path := filepath.Join(l.basePath, key)
 	dir := filepath.Dir(path) // Ensure directory exists
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
+		return fmt.Errorf("creating directory: %w", err)
 	}
 	return os.WriteFile(path, data, 0o644)
 }
@@ -63,7 +63,7 @@ func (l *LocalFiles) StreamRead(ctx context.Context, key string) (io.ReadCloser,
 	path := filepath.Join(l.basePath, key)
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %w", err)
+		return nil, fmt.Errorf("opening file: %w", err)
 	}
 	return file, nil
 }
@@ -73,11 +73,11 @@ func (l *LocalFiles) StreamWrite(ctx context.Context, key string) (io.WriteClose
 	path := filepath.Join(l.basePath, key)
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create directory: %w", err)
+		return nil, fmt.Errorf("creating directory: %w", err)
 	}
 	file, err := os.Create(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create file: %w", err)
+		return nil, fmt.Errorf("creating file: %w", err)
 	}
 	return file, nil
 }
@@ -91,7 +91,7 @@ type GcsBucket struct {
 func NewGcsBucket(ctx context.Context, bucket string) (*GcsBucket, error) {
 	client, err := storage.NewClient(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create client: %w", err)
+		return nil, fmt.Errorf("creating client: %w", err)
 	}
 	return &GcsBucket{
 		bucket: client.Bucket(bucket),
@@ -102,7 +102,7 @@ func NewGcsBucket(ctx context.Context, bucket string) (*GcsBucket, error) {
 func (g *GcsBucket) Read(ctx context.Context, key string) ([]byte, error) {
 	rc, err := g.bucket.Object(key).NewReader(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create reader: %w", err)
+		return nil, fmt.Errorf("creating reader: %w", err)
 	}
 	defer rc.Close()
 
@@ -112,10 +112,12 @@ func (g *GcsBucket) Read(ctx context.Context, key string) ([]byte, error) {
 // Writes a blob to Google Cloud Storage.
 func (g *GcsBucket) Write(ctx context.Context, key string, data []byte) error {
 	wc := g.bucket.Object(key).NewWriter(ctx)
-	defer wc.Close()
 
 	if _, err := wc.Write(data); err != nil {
-		return fmt.Errorf("failed to write data: %w", err)
+		return fmt.Errorf("writing: %w", err)
+	}
+	if err := wc.Close(); err != nil {
+		return fmt.Errorf("closing writer: %w", err)
 	}
 	return nil
 }
@@ -124,7 +126,7 @@ func (g *GcsBucket) Write(ctx context.Context, key string, data []byte) error {
 func (g *GcsBucket) Remove(ctx context.Context, key string) error {
 	err := g.bucket.Object(key).Delete(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to delete object: %w", err)
+		return fmt.Errorf("deleting object: %w", err)
 	}
 	return nil
 }
@@ -133,7 +135,7 @@ func (g *GcsBucket) Remove(ctx context.Context, key string) error {
 func (g *GcsBucket) StreamRead(ctx context.Context, key string) (io.ReadCloser, error) {
 	rc, err := g.bucket.Object(key).NewReader(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create reader: %w", err)
+		return nil, fmt.Errorf("creating reader: %w", err)
 	}
 	return rc, nil
 }
