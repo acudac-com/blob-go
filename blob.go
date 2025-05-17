@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 
 	"cloud.google.com/go/storage"
@@ -21,32 +22,28 @@ type BlobStorage interface {
 	WriteIfMissing(ctx context.Context, key string, data []byte) error
 	// Removes a blob if it exists
 	Remove(ctx context.Context, key string) error
-	// StreamRead returns an io.ReadCloser for reading a blob.
-	StreamRead(ctx context.Context, key string) (io.ReadCloser, error)
-	// StreamWrite returns an io.WriteCloser for writing a blob.
-	StreamWrite(ctx context.Context, key string) (io.WriteCloser, error)
 }
 
 // Implements the BlobStorage interface for the local file system.
-type LocalFiles struct {
+type Fs struct {
 	basePath string // Base path where blobs will be stored.
 }
 
-// Returns a new LocalFiles instance.
-func NewLocalFiles(basePath string) *LocalFiles {
-	return &LocalFiles{
+// Returns a new Fs instance.
+func NewFsBlobStorage(basePath string) *Fs {
+	return &Fs{
 		basePath: basePath,
 	}
 }
 
 // Reads a blob from the local file system.
-func (l *LocalFiles) Read(ctx context.Context, key string) ([]byte, error) {
+func (l *Fs) Read(ctx context.Context, key string) ([]byte, error) {
 	path := filepath.Join(l.basePath, key)
 	return os.ReadFile(path)
 }
 
 // Writes a blob to the local file system.
-func (l *LocalFiles) Write(ctx context.Context, key string, data []byte) error {
+func (l *Fs) Write(ctx context.Context, key string, data []byte) error {
 	path := filepath.Join(l.basePath, key)
 	dir := filepath.Dir(path) // Ensure directory exists
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -56,8 +53,12 @@ func (l *LocalFiles) Write(ctx context.Context, key string, data []byte) error {
 }
 
 // Writes a blob to the local file system if the key does not contain any data yet
-func (l *LocalFiles) WriteIfMissing(ctx context.Context, key string, data []byte) error {
+func (l *Fs) WriteIfMissing(ctx context.Context, key string, data []byte) error {
 	path := filepath.Join(l.basePath, key)
+	dir := filepath.Dir(path) // Ensure directory exists
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating directory: %w", err)
+	}
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		if os.IsExist(err) {
@@ -77,53 +78,29 @@ func (l *LocalFiles) WriteIfMissing(ctx context.Context, key string, data []byte
 }
 
 // Removes a blob from the local file system.
-func (l *LocalFiles) Remove(ctx context.Context, key string) error {
+func (l *Fs) Remove(ctx context.Context, key string) error {
 	path := filepath.Join(l.basePath, key)
 	return os.Remove(path)
 }
 
-// Returns an io.ReadCloser for streaming a blob from the local file system.
-func (l *LocalFiles) StreamRead(ctx context.Context, key string) (io.ReadCloser, error) {
-	path := filepath.Join(l.basePath, key)
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("opening file: %w", err)
-	}
-	return file, nil
-}
-
-// Returns an io.WriteCloser for streaming a blob to the local file system.
-func (l *LocalFiles) StreamWrite(ctx context.Context, key string) (io.WriteCloser, error) {
-	path := filepath.Join(l.basePath, key)
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("creating directory: %w", err)
-	}
-	file, err := os.Create(path)
-	if err != nil {
-		return nil, fmt.Errorf("creating file: %w", err)
-	}
-	return file, nil
-}
-
-// GcsBucket implements BlobStorage for Google Cloud Storage.
-type GcsBucket struct {
+// Gcs implements BlobStorage for Google Cloud Storage.
+type Gcs struct {
 	bucket *storage.BucketHandle
+	prefix string
 }
 
-// Returns a new GcsBucket instance.
-func NewGcsBucket(ctx context.Context, bucket string) (*GcsBucket, error) {
+// Returns a new Gcs blob storage instance.
+func NewGcsBlobStorage(ctx context.Context, bucket string, prefix string) (*Gcs, error) {
 	client, err := storage.NewClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
-	return &GcsBucket{
-		bucket: client.Bucket(bucket),
-	}, nil
+	return &Gcs{client.Bucket(bucket), prefix}, nil
 }
 
 // Reads a blob from Google Cloud Storage.
-func (g *GcsBucket) Read(ctx context.Context, key string) ([]byte, error) {
+func (g *Gcs) Read(ctx context.Context, key string) ([]byte, error) {
+	key = path.Join(g.prefix, key)
 	rc, err := g.bucket.Object(key).NewReader(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("creating reader: %w", err)
@@ -134,7 +111,8 @@ func (g *GcsBucket) Read(ctx context.Context, key string) ([]byte, error) {
 }
 
 // Writes a blob to Google Cloud Storage.
-func (g *GcsBucket) Write(ctx context.Context, key string, data []byte) error {
+func (g *Gcs) Write(ctx context.Context, key string, data []byte) error {
+	key = path.Join(g.prefix, key)
 	wc := g.bucket.Object(key).NewWriter(ctx)
 
 	if _, err := wc.Write(data); err != nil {
@@ -147,7 +125,8 @@ func (g *GcsBucket) Write(ctx context.Context, key string, data []byte) error {
 }
 
 // Writes a blob to Google Cloud Storage if the key does not contain any data yet
-func (g *GcsBucket) WriteIfMissing(ctx context.Context, key string, data []byte) error {
+func (g *Gcs) WriteIfMissing(ctx context.Context, key string, data []byte) error {
+	key = path.Join(g.prefix, key)
 	wc := g.bucket.Object(key).If(storage.Conditions{DoesNotExist: true}).NewWriter(ctx)
 
 	if _, err := wc.Write(data); err != nil {
@@ -163,7 +142,8 @@ func (g *GcsBucket) WriteIfMissing(ctx context.Context, key string, data []byte)
 }
 
 // Remove removes a blob from Google Cloud Storage.
-func (g *GcsBucket) Remove(ctx context.Context, key string) error {
+func (g *Gcs) Remove(ctx context.Context, key string) error {
+	key = path.Join(g.prefix, key)
 	err := g.bucket.Object(key).Delete(ctx)
 	if err != nil {
 		return fmt.Errorf("deleting object: %w", err)
@@ -171,23 +151,8 @@ func (g *GcsBucket) Remove(ctx context.Context, key string) error {
 	return nil
 }
 
-// StreamRead returns an io.ReadCloser for reading a blob from Google Cloud Storage.
-func (g *GcsBucket) StreamRead(ctx context.Context, key string) (io.ReadCloser, error) {
-	rc, err := g.bucket.Object(key).NewReader(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("creating reader: %w", err)
-	}
-	return rc, nil
-}
-
-// StreamWrite returns an io.WriteCloser for writing a blob to Google Cloud Storage.
-func (g *GcsBucket) StreamWrite(ctx context.Context, key string) (io.WriteCloser, error) {
-	wc := g.bucket.Object(key).NewWriter(ctx)
-	return wc, nil
-}
-
 // Ensure that our types satisfy the interface
 var (
-	_ BlobStorage = &LocalFiles{}
-	_ BlobStorage = &GcsBucket{}
+	_ BlobStorage = &Fs{}
+	_ BlobStorage = &Gcs{}
 )
