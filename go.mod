@@ -2,7 +2,10 @@ module github.com/acudac-com/blob-go
 
 go 1.24.3
 
-require cloud.google.com/go/storage v1.54.0
+require (
+	cloud.google.com/go/storage v1.54.0
+	google.golang.org/api v0.232.0
+)
 
 require (
 	cel.dev/expr v0.20.0 // indirect
@@ -46,7 +49,6 @@ require (
 	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
-	google.golang.org/api v0.232.0 // indirect
 	google.golang.org/genproto v0.0.0-20250303144028-a0af3efb3deb // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250505200425-f936aa4a68b2 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250505200425-f936aa4a68b2 // indirect
