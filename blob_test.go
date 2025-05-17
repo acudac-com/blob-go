@@ -20,7 +20,7 @@ func TestLocalFiles(t *testing.T) {
 	data := []byte("Hello, Local Files!")
 
 	// Write
-	err := localFS.Write(ctx, key, data)
+	err := localFS.WriteIfMissing(ctx, key, data)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -96,14 +96,14 @@ func TestGcsBucket(t *testing.T) {
 	ctx := context.Background()
 
 	key := "users/123/test_object.txt"
-	data := []byte("Hello, GCS!")
+	data := []byte("Hello, Google Cloud Storage!")
 	gcs, err := blob.NewGcsBucket(ctx, os.Getenv("FILES_BUCKET"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Write
-	err = gcs.Write(ctx, key, data)
+	err = gcs.WriteIfMissing(ctx, key, data)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}

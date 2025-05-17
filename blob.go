@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"cloud.google.com/go/storage"
+	"google.golang.org/api/googleapi"
 )
 
 // A simplified interface for interacting with blob storage.
@@ -16,6 +17,8 @@ type BlobStorage interface {
 	Read(ctx context.Context, key string) ([]byte, error)
 	// Writes a blob
 	Write(ctx context.Context, key string, data []byte) error
+	// Writes a blob if the key does not contain any data yet
+	WriteIfMissing(ctx context.Context, key string, data []byte) error
 	// Removes a blob if it exists
 	Remove(ctx context.Context, key string) error
 	// StreamRead returns an io.ReadCloser for reading a blob.
@@ -50,6 +53,27 @@ func (l *LocalFiles) Write(ctx context.Context, key string, data []byte) error {
 		return fmt.Errorf("creating directory: %w", err)
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// Writes a blob to the local file system if the key does not contain any data yet
+func (l *LocalFiles) WriteIfMissing(ctx context.Context, key string, data []byte) error {
+	path := filepath.Join(l.basePath, key)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			return nil // File already exists
+		}
+		return fmt.Errorf("opening file with O_EXCL: %w", err)
+	}
+	defer f.Close()
+
+	// If we reached here, the file was just created exclusively.
+	// Now we can safely write to it.
+	_, err = f.WriteAt(data, 0)
+	if err != nil {
+		return fmt.Errorf("writing data: %w", err)
+	}
+	return nil
 }
 
 // Removes a blob from the local file system.
@@ -117,6 +141,22 @@ func (g *GcsBucket) Write(ctx context.Context, key string, data []byte) error {
 		return fmt.Errorf("writing: %w", err)
 	}
 	if err := wc.Close(); err != nil {
+		return fmt.Errorf("closing writer: %w", err)
+	}
+	return nil
+}
+
+// Writes a blob to Google Cloud Storage if the key does not contain any data yet
+func (g *GcsBucket) WriteIfMissing(ctx context.Context, key string, data []byte) error {
+	wc := g.bucket.Object(key).If(storage.Conditions{DoesNotExist: true}).NewWriter(ctx)
+
+	if _, err := wc.Write(data); err != nil {
+		return fmt.Errorf("writing: %w", err)
+	}
+	if err := wc.Close(); err != nil {
+		if apiErr, ok := err.(*googleapi.Error); ok && apiErr.Code == 412 {
+			return nil
+		}
 		return fmt.Errorf("closing writer: %w", err)
 	}
 	return nil
