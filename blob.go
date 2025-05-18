@@ -13,7 +13,7 @@ import (
 )
 
 // A simplified interface for interacting with blob storage.
-type BlobStorage interface {
+type Storage interface {
 	// Reads a blob
 	Read(ctx context.Context, key string) ([]byte, error)
 	// Writes a blob
@@ -24,13 +24,13 @@ type BlobStorage interface {
 	Remove(ctx context.Context, key string) error
 }
 
-// Implements the BlobStorage interface for the local file system.
+// Implements the Storage interface for the local file system.
 type Fs struct {
 	basePath string // Base path where blobs will be stored.
 }
 
 // Returns a new Fs instance.
-func NewFsBlobStorage(basePath string) *Fs {
+func NewFsStorage(basePath string) *Fs {
 	return &Fs{
 		basePath: basePath,
 	}
@@ -83,14 +83,14 @@ func (l *Fs) Remove(ctx context.Context, key string) error {
 	return os.Remove(path)
 }
 
-// Gcs implements BlobStorage for Google Cloud Storage.
+// Gcs implements Storage for Google Cloud Storage.
 type Gcs struct {
 	bucket *storage.BucketHandle
 	prefix string
 }
 
 // Returns a new Gcs blob storage instance.
-func NewGcsBlobStorage(ctx context.Context, bucket string, prefix string) (*Gcs, error) {
+func NewGcsStorage(ctx context.Context, bucket string, prefix string) (*Gcs, error) {
 	client, err := storage.NewClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
@@ -153,6 +153,6 @@ func (g *Gcs) Remove(ctx context.Context, key string) error {
 
 // Ensure that our types satisfy the interface
 var (
-	_ BlobStorage = &Fs{}
-	_ BlobStorage = &Gcs{}
+	_ Storage = &Fs{}
+	_ Storage = &Gcs{}
 )

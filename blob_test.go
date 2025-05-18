@@ -14,7 +14,7 @@ func TestLocalFiles(t *testing.T) {
 	basePath := "test_local_files"
 	defer os.RemoveAll(basePath) // Clean up after the test
 
-	localFS := blob.NewFsBlobStorage(basePath)
+	localFS := blob.NewFsStorage(basePath)
 	key := "users/123/test_file.txt"
 	data := []byte("Hello, Local Files!")
 
@@ -50,7 +50,7 @@ func TestGcsBucket(t *testing.T) {
 
 	key := "users/123/test_object.txt"
 	data := []byte("Hello, Google Cloud Storage!")
-	gcs, err := blob.NewGcsBlobStorage(ctx, os.Getenv("FILES_BUCKET"), "someprefix/sub")
+	gcs, err := blob.NewGcsStorage(ctx, os.Getenv("GCS_BUCKET"), "someprefix/sub")
 	if err != nil {
 		t.Fatal(err)
 	}
