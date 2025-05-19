@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 
 	"cloud.google.com/go/storage"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/googleapi"
+	"google.golang.org/api/iterator"
 )
 
 // A simplified interface for interacting with blob storage.
@@ -22,6 +24,8 @@ type Storage interface {
 	WriteIfMissing(ctx context.Context, key string, data []byte) error
 	// Removes a blob if it exists
 	Remove(ctx context.Context, key string) error
+	// Removes a folder and all children blobs
+	RemoveFolder(ctx context.Context, folder string) error
 }
 
 // Implements the Storage interface for the local file system.
@@ -81,6 +85,16 @@ func (l *Fs) WriteIfMissing(ctx context.Context, key string, data []byte) error 
 func (l *Fs) Remove(ctx context.Context, key string) error {
 	path := filepath.Join(l.basePath, key)
 	return os.Remove(path)
+}
+
+// Removes a folder
+func (l *Fs) RemoveFolder(ctx context.Context, folder string) error {
+	path := filepath.Join(l.basePath, folder)
+	err := os.RemoveAll(path)
+	if err != nil {
+		return fmt.Errorf("removing folder: %w", err)
+	}
+	return nil
 }
 
 // Gcs implements Storage for Google Cloud Storage.
@@ -147,6 +161,33 @@ func (g *Gcs) Remove(ctx context.Context, key string) error {
 	err := g.bucket.Object(key).Delete(ctx)
 	if err != nil {
 		return fmt.Errorf("deleting object: %w", err)
+	}
+	return nil
+}
+
+// Removes all objects at the specified folder (prefix)
+func (g *Gcs) RemoveFolder(ctx context.Context, folder string) error {
+	folder = path.Join(g.prefix, folder)
+	it := g.bucket.Objects(ctx, &storage.Query{Prefix: folder + "/"})
+	errG, ctx := errgroup.WithContext(ctx)
+	for {
+		objAttrs, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("iterating objects: %w", err)
+		}
+		errG.Go(func() error {
+			err = g.bucket.Object(objAttrs.Name).Delete(ctx)
+			if err != nil {
+				return fmt.Errorf("deleting object: %w", err)
+			}
+			return nil
+		})
+	}
+	if err := errG.Wait(); err != nil {
+		return fmt.Errorf("waiting for delete operations: %w", err)
 	}
 	return nil
 }
