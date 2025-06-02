@@ -26,6 +26,11 @@ type Storage interface {
 	Remove(ctx context.Context, key string) error
 	// Removes a folder and all children blobs
 	RemoveFolder(ctx context.Context, folder string) error
+
+	// Returns an io readerCloser
+	Reader(ctx context.Context, key string) (io.ReadCloser, error)
+	// Returns an io writerCloser
+	Writer(ctx context.Context, key string) (io.WriteCloser, error)
 }
 
 // Implements the Storage interface for the local file system.
@@ -95,6 +100,30 @@ func (l *Fs) RemoveFolder(ctx context.Context, folder string) error {
 		return fmt.Errorf("removing folder: %w", err)
 	}
 	return nil
+}
+
+// Returns an io readerCloser for the blob at the given key.
+func (l *Fs) Reader(ctx context.Context, key string) (io.ReadCloser, error) {
+	path := filepath.Join(l.basePath, key)
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("opening file: %w", err)
+	}
+	return file, nil
+}
+
+// Returns an io writerCloser for the blob at the given key.
+func (l *Fs) Writer(ctx context.Context, key string) (io.WriteCloser, error) {
+	path := filepath.Join(l.basePath, key)
+	dir := filepath.Dir(path) // Ensure directory exists
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("creating directory: %w", err)
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		return nil, fmt.Errorf("creating file: %w", err)
+	}
+	return file, nil
 }
 
 // Gcs implements Storage for Google Cloud Storage.
@@ -190,6 +219,26 @@ func (g *Gcs) RemoveFolder(ctx context.Context, folder string) error {
 		return fmt.Errorf("waiting for delete operations: %w", err)
 	}
 	return nil
+}
+
+// Returns an io readerCloser for the blob at the given key.
+func (g *Gcs) Reader(ctx context.Context, key string) (io.ReadCloser, error) {
+	key = path.Join(g.prefix, key)
+	rc, err := g.bucket.Object(key).NewReader(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("creating reader: %w", err)
+	}
+	return rc, nil
+}
+
+// Returns an io writerCloser for the blob at the given key.
+func (g *Gcs) Writer(ctx context.Context, key string) (io.WriteCloser, error) {
+	key = path.Join(g.prefix, key)
+	wc := g.bucket.Object(key).NewWriter(ctx)
+	if wc == nil {
+		return nil, fmt.Errorf("creating writer for key %s", key)
+	}
+	return wc, nil
 }
 
 // Ensure that our types satisfy the interface
